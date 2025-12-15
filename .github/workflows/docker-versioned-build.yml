@@ -64,3 +64,4 @@ jobs:
           tags: |
             ghcr.io/ylhka/ci-cd-practice:latest
             ghcr.io/ylhka/ci-cd-practice:${{ env.COMMIT_SHA_SHORT }}
+            
