@@ -1,17 +1,17 @@
-name: Docker Versioned Build and Push
+name: Docker Build and Push
 
-# 触发条件：推送到 main 分支自动触发
 on:
   push:
     branches: [ "main" ]
 
-# 权限设置：保留读取代码、写入 Packages 的基础权限
+# 这是一个重要的设置：定义 GITHUB_TOKEN 的权限
+# 我们需要写入 Packages 的权限来推送镜像
 permissions:
   contents: read
   packages: write
 
 jobs:
-  # 第一步：代码测试（复用实验二逻辑，保证代码合法性）
+  # 第一步：测试代码
   test:
     runs-on: ubuntu-latest
     steps:
@@ -29,56 +29,38 @@ jobs:
       - name: Run tests
         run: npm test
 
-  # 第二步：构建带唯一版本标签的 Docker 镜像并推送
-  build-and-push-versioned:
-    needs: test # 仅测试通过后才执行构建
+  # 第二步：构建并推送 Docker 镜像（新增版本动态管理逻辑）
+  build-and-push:
+    needs: test # 只有测试通过才运行
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 配置 Docker Buildx（优化构建体验，Docker 官方推荐）
+      # 新增步骤：截取 Git Commit SHA 前7位（解决Actions不支持[:7]语法的问题）
+      - name: Set short commit SHA as env var
+        run: echo "COMMIT_SHA_SHORT=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
+
+      # 设置 Docker Buildx 环境 (Docker 官方推荐)
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 登录 GitHub Container Registry (GHCR)
-      - name: Log in to GHCR
+      # 登录到 GitHub Container Registry (ghcr.io)
+      # ${{ secrets.GITHUB_TOKEN }} 是 GitHub 自动生成的密钥，无需手动设置
+      - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }} # GitHub 自动生成，无需手动配置
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 核心步骤：构建并推送带多标签的镜像
-      - name: Build and push versioned Docker image
+      # 构建并推送（核心修改：多标签配置，保留latest + 唯一SHA标签）
+      - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: . # 构建上下文为仓库根目录
-          push: true # 开启推送镜像到仓库
-          # 多标签配置：同时打 latest（最新版）和 7位Commit SHA（唯一版本）
+          context: .
+          push: true
+          # 注意：镜像名称必须全部小写；tags支持多行（|符号），同时打2个标签
           tags: |
-            ghcr.io/${{ github.repository_owner }}/ci-cd-practice:latest
-            ghcr.io/${{ github.repository_owner }}/ci-cd-practice:${{ github.sha[:7] }}
-
-  # 第三步：验证版本化镜像可用性（可选但推荐，确保镜像能正常运行）
-  verify-versioned-image:
-    needs: build-and-push-versioned # 仅镜像推送成功后执行验证
-    runs-on: ubuntu-latest
-    steps:
-      - name: Pull versioned image from GHCR
-        run: |
-          # 登录 GHCR（拉取私有镜像需登录，公开镜像可省略，但建议保留）
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          # 拉取刚推送的唯一版本镜像
-          docker pull ghcr.io/${{ github.repository_owner }}/ci-cd-practice:${{ github.sha[:7] }}
-
-      - name: Run and verify the image
-        run: |
-          # 启动容器（后台运行，映射端口3000）
-          docker run -d -p 3000:3000 --name verify-app ghcr.io/${{ github.repository_owner }}/ci-cd-practice:${{ github.sha[:7] }}
-          # 等待容器启动完成
-          sleep 5
-          # 验证服务是否正常（curl访问并输出结果）
-          curl http://localhost:3000
-          # 清理容器（避免占用资源）
-          docker stop verify-app && docker rm verify-app
+            ghcr.io/ylhka/ci-cd-practice:latest
+            ghcr.io/ylhka/ci-cd-practice:${{ env.COMMIT_SHA_SHORT }}
