@@ -48,7 +48,7 @@ jobs:
         with:
           context: .
           push: true
-          # 核心修改：同时打 latest 标签和 Commit SHA 标签（前7位）
+          # 核心修正：1. 清理非法文本 2. 用slice替代substr截取SHA前7位
           tags: |
             ghcr.io/ylhka/ci-cd-practice:latest
-            ghcr.io/ylhka/ci-cd-practice:${{ github.sha | substr(0,7) }}
+            ghcr.io/ylhka/ci-cd-practice:${{ github.sha | slice(0,7) }}
